@@ -1,16 +1,11 @@
 package com.example.safeher
 
-import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.preference.PreferenceManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -30,25 +25,30 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.content.ContextCompat
-import com.example.safeher.services.JourneyService
+import com.example.safeher.services.SafetyService
 import com.example.safeher.theme.SafeHerTheme
 import com.example.safeher.utils.LocationHelper
 import com.example.safeher.utils.PreferencesHelper
-import org.osmdroid.config.Configuration
-import org.osmdroid.util.GeoPoint
-import org.osmdroid.views.MapView
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Initialize the free map configuration and set User-Agent to avoid 403 Blocked errors
-        Configuration.getInstance().userAgentValue = "com.example.safeher"
-        Configuration.getInstance().load(this, PreferenceManager.getDefaultSharedPreferences(this))
-
+        
+        // Start the background SafetyService for Shake, Battery, and Volume triggers
+        try {
+            val serviceIntent = Intent(this, SafetyService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent)
+            } else {
+                startService(serviceIntent)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        
         enableEdgeToEdge()
         setContent {
             SafeHerTheme { 
@@ -78,17 +78,19 @@ fun MainAppScreen() {
         ) { targetTab ->
             when (targetTab) {
                 "SOS" -> SosScreen()
-                "Journey" -> JourneyScreen()
+                "Camouflage" -> CamouflageScreen(onExit = { currentTab = "SOS" })
                 "Contacts" -> ContactsScreen()
             }
         }
 
         // Premium Detached Floating Bottom Navigation
-        FloatingBottomNavBar(
-            currentTab = currentTab,
-            onTabSelected = { currentTab = it },
-            modifier = Modifier.align(Alignment.BottomCenter)
-        )
+        if (currentTab != "Camouflage") {
+            FloatingBottomNavBar(
+                currentTab = currentTab,
+                onTabSelected = { currentTab = it },
+                modifier = Modifier.align(Alignment.BottomCenter)
+            )
+        }
     }
 }
 
@@ -99,11 +101,10 @@ fun FloatingBottomNavBar(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    var contacts by remember { mutableStateOf(PreferencesHelper.getContacts(context)) }
 
     Box(
         modifier = modifier
-            .padding(start = 24.dp, end = 24.dp, bottom = 40.dp) // Detached floating
+            .padding(start = 24.dp, end = 24.dp, bottom = 40.dp)
             .fillMaxWidth()
             .height(80.dp),
         contentAlignment = Alignment.Center
@@ -123,12 +124,12 @@ fun FloatingBottomNavBar(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Journey Tab
+                // Camouflage Tab
                 NavBarItem(
-                    title = "Journey",
-                    icon = "MAP",
-                    isSelected = currentTab == "Journey",
-                    onClick = { onTabSelected("Journey") }
+                    title = "Stealth",
+                    icon = "HIDE",
+                    isSelected = currentTab == "Camouflage",
+                    onClick = { onTabSelected("Camouflage") }
                 )
                 
                 // Spacer for center SOS button
@@ -157,8 +158,8 @@ fun FloatingBottomNavBar(
 
         Box(
             modifier = Modifier
-                .size(85.dp) // Extra Large
-                .offset(y = (-20).dp) // Pop out of the top of the bar
+                .size(85.dp)
+                .offset(y = (-20).dp)
                 .scale(scale)
                 .clip(CircleShape)
                 .background(
@@ -167,6 +168,8 @@ fun FloatingBottomNavBar(
                     )
                 )
                 .clickable {
+                    // Always read fresh contacts at trigger time
+                    val contacts = PreferencesHelper.getContacts(context)
                     LocationHelper.sendSosWithLocation(context, contacts)
                     onTabSelected("SOS")
                 },
@@ -261,90 +264,75 @@ fun SosScreen() {
 }
 
 @Composable
-fun JourneyScreen() {
+fun CamouflageScreen(onExit: () -> Unit) {
+    // A fake Calculator UI to hide the app's true purpose
+    var displayText by remember { mutableStateOf("0") }
+    
     val context = LocalContext.current
-    var isJourneyActive by remember { mutableStateOf(false) }
-    var destination by remember { mutableStateOf("") }
-
+    
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp)
-            .padding(top = 40.dp, bottom = 120.dp), // Extra bottom padding for floating bar
-        horizontalAlignment = Alignment.CenterHorizontally
+            .background(Color.Black)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.Bottom
     ) {
+        // Display
         Text(
-            text = "Route Tracker",
-            fontSize = 28.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(bottom = 16.dp)
-        )
-
-        // Destination Search Bar
-        OutlinedTextField(
-            value = destination,
-            onValueChange = { destination = it },
-            placeholder = { Text("Where are you going?", fontWeight = FontWeight.SemiBold) },
+            text = displayText,
+            fontSize = 64.sp,
+            color = Color.White,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 16.dp),
-            shape = RoundedCornerShape(20.dp),
-            singleLine = true,
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-            )
+                .padding(bottom = 32.dp, end = 16.dp),
+            textAlign = TextAlign.End
         )
-
-        Card(
-            shape = RoundedCornerShape(24.dp),
-            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .padding(bottom = 16.dp)
-        ) {
-            AndroidView(
-                factory = { ctx ->
-                    MapView(ctx).apply {
-                        setMultiTouchControls(true)
-                        controller.setZoom(16.0)
-                        controller.setCenter(GeoPoint(40.7128, -74.0060)) 
+        
+        // Keypad
+        val buttons = listOf(
+            listOf("7", "8", "9", "÷"),
+            listOf("4", "5", "6", "×"),
+            listOf("1", "2", "3", "-"),
+            listOf("C", "0", "=", "+")
+        )
+        
+        for (row in buttons) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                for (btn in row) {
+                    Box(
+                        modifier = Modifier
+                            .size(72.dp)
+                            .clip(CircleShape)
+                            .background(Color.DarkGray)
+                            .clickable {
+                                if (btn == "C") displayText = "0"
+                                else if (btn == "=") {
+                                    // Trigger SOS on equals press!
+                                    val contacts = PreferencesHelper.getContacts(context)
+                                    LocationHelper.sendSosWithLocation(context, contacts, "[STEALTH SOS] Emergency triggered from calculator!")
+                                    displayText = "Error"
+                                }
+                                else if (displayText == "0" || displayText == "Error") displayText = btn
+                                else displayText += btn
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(text = btn, fontSize = 28.sp, color = Color.White)
                     }
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-        }
-
-        Button(
-            onClick = {
-                val intent = Intent(context, JourneyService::class.java)
-                if (isJourneyActive) {
-                    context.stopService(intent)
-                    isJourneyActive = false
-                } else {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        context.startForegroundService(intent)
-                    } else {
-                        context.startService(intent)
-                    }
-                    isJourneyActive = true
                 }
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(65.dp),
-            shape = RoundedCornerShape(32.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = if (isJourneyActive) Color(0xFF388E3C) else MaterialTheme.colorScheme.primary
-            )
-        ) {
-            Text(
-                text = if (isJourneyActive) "STOP JOURNEY" else "START JOURNEY",
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Black
-            )
+            }
         }
+        
+        // Secret exit button at the very bottom
+        Box(modifier = Modifier
+            .fillMaxWidth()
+            .height(40.dp)
+            .clickable { onExit() })
     }
 }
 

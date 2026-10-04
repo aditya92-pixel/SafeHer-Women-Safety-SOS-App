@@ -84,7 +84,4 @@ dependencies {
 
   // Location Services
   implementation("com.google.android.gms:play-services-location:21.3.0")
-
-  // Free Open Source Maps (No API Key Required)
-  implementation("org.osmdroid:osmdroid-android:6.1.18")
 }
