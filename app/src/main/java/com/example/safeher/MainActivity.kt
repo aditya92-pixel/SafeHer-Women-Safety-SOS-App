@@ -1,262 +1,315 @@
 package com.example.safeher
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.animation.*
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.*
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.example.safeher.services.SafetyService
 import com.example.safeher.theme.SafeHerTheme
+import com.example.safeher.utils.CameraHelper
 import com.example.safeher.utils.LocationHelper
 import com.example.safeher.utils.PreferencesHelper
+
+// ── Design Tokens ─────────────────────────────────────────────────────────────
+private val BG       = Color(0xFF0B0B12)
+private val Surf1    = Color(0xFF13131D)
+private val Surf2    = Color(0xFF1A1A27)
+private val Border   = Color(0xFF23233A)
+private val Primary  = Color(0xFFD63651)
+private val TxtHi    = Color(0xFFEEEEF5)
+private val TxtSub   = Color(0xFF8888A0)
+private val TxtMuted = Color(0xFF4A4A65)
+private val GreenOn  = Color(0xFF30D158)
+// ─────────────────────────────────────────────────────────────────────────────
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
-        // Start the background SafetyService for Shake, Battery, and Volume triggers
         try {
-            val serviceIntent = Intent(this, SafetyService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(serviceIntent)
-            } else {
-                startService(serviceIntent)
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-        
+            val svc = Intent(this, SafetyService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(svc)
+            else startService(svc)
+        } catch (e: Exception) { e.printStackTrace() }
+
         enableEdgeToEdge()
         setContent {
-            SafeHerTheme { 
-                Surface(
-                    modifier = Modifier.fillMaxSize(), 
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    MainAppScreen() 
-                } 
+            SafeHerTheme {
+                Surface(modifier = Modifier.fillMaxSize(), color = BG) {
+                    MainAppScreen()
+                }
             }
         }
     }
 }
 
+// ── App Shell ─────────────────────────────────────────────────────────────────
+
 @Composable
 fun MainAppScreen() {
-    var currentTab by remember { mutableStateOf("SOS") }
+    var tab by remember { mutableStateOf("home") }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        
-        // Background content based on tab
+    Box(Modifier.fillMaxSize().background(BG)) {
         AnimatedContent(
-            targetState = currentTab,
-            transitionSpec = {
-                fadeIn(animationSpec = tween(400)) togetherWith fadeOut(animationSpec = tween(400))
-            }, label = "tab_animation"
-        ) { targetTab ->
-            when (targetTab) {
-                "SOS" -> SosScreen()
-                "Camouflage" -> CamouflageScreen(onExit = { currentTab = "SOS" })
-                "Contacts" -> ContactsScreen()
+            targetState = tab,
+            transitionSpec = { fadeIn(tween(280)) togetherWith fadeOut(tween(280)) },
+            label = "screen_transition"
+        ) { t ->
+            when (t) {
+                "home"    -> HomeScreen()
+                "stealth" -> CamouflageScreen(onExit = { tab = "home" })
+                "network" -> NetworkScreen()
             }
         }
 
-        // Premium Detached Floating Bottom Navigation
-        if (currentTab != "Camouflage") {
-            FloatingBottomNavBar(
-                currentTab = currentTab,
-                onTabSelected = { currentTab = it },
-                modifier = Modifier.align(Alignment.BottomCenter)
+        if (tab != "stealth") {
+            AppBottomBar(tab = tab, onTab = { tab = it },
+                modifier = Modifier.align(Alignment.BottomCenter))
+        }
+    }
+}
+
+// ── Bottom Navigation Bar ─────────────────────────────────────────────────────
+
+@Composable
+fun AppBottomBar(tab: String, onTab: (String) -> Unit, modifier: Modifier = Modifier) {
+    val ctx = LocalContext.current
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp)
+            .padding(bottom = 32.dp),
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        // Bar pill
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(60.dp)
+                .clip(RoundedCornerShape(30.dp))
+                .background(Surf2),
+            horizontalArrangement = Arrangement.SpaceAround,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            NavTab(Icons.Rounded.Shield,  "Shield",   tab == "home")    { onTab("home") }
+            NavTab(Icons.Rounded.Calculate, "Stealth", tab == "stealth") { onTab("stealth") }
+            NavTab(Icons.Rounded.Group,   "Guardians",tab == "network") { onTab("network") }
+        }
+    }
+}
+
+@Composable
+private fun NavTab(icon: ImageVector, label: String, selected: Boolean, onClick: () -> Unit) {
+    val color = if (selected) Primary else TxtMuted
+    Column(
+        modifier = Modifier
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        Icon(icon, contentDescription = label, tint = color, modifier = Modifier.size(20.dp))
+        Text(label, fontSize = 10.sp, color = color,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+    }
+}
+
+// ── Home Screen ───────────────────────────────────────────────────────────────
+
+@Composable
+fun HomeScreen() {
+    val ctx = LocalContext.current
+    var contacts by remember { mutableStateOf(PreferencesHelper.getContacts(ctx)) }
+    var shakeOn  by remember { mutableStateOf(PreferencesHelper.isShakeEnabled(ctx)) }
+    var cameraOn by remember { mutableStateOf(PreferencesHelper.isCameraOnSosEnabled(ctx)) }
+
+    val camLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        cameraOn = granted
+        PreferencesHelper.setCameraOnSosEnabled(ctx, granted)
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(BG)
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp)
+            .padding(top = 56.dp, bottom = 110.dp)
+    ) {
+        // ── Header ──────────────────────────────────────────────────────────
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("SafeHer", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = TxtHi)
+            StatusPill()
+        }
+
+        Spacer(Modifier.height(52.dp))
+
+        // ── SOS Hero ────────────────────────────────────────────────────────
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            SosHeroButton {
+                val c = PreferencesHelper.getContacts(ctx)
+                LocationHelper.sendSosWithLocation(ctx, c)
+                CameraHelper.capturePhotosOnSos(ctx)
+            }
+            Spacer(Modifier.height(16.dp))
+            Text(
+                text = when {
+                    contacts.isEmpty() -> "Add guardians to enable alerts"
+                    contacts.size == 1 -> "1 guardian will be notified"
+                    else               -> "${contacts.size} guardians will be notified"
+                },
+                fontSize = 13.sp,
+                color = if (contacts.isEmpty()) Primary.copy(alpha = 0.6f) else TxtSub
+            )
+        }
+
+        Spacer(Modifier.height(48.dp))
+
+        // ── Protection Settings ──────────────────────────────────────────────
+        SectionLabel("PROTECTION")
+        Spacer(Modifier.height(8.dp))
+        Column(
+            Modifier.fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(Surf1)
+        ) {
+            SettingRow(
+                icon      = Icons.Rounded.Vibration,
+                title     = "Shake Alert",
+                subtitle  = if (shakeOn) "Shake phone to trigger emergency" else "Disabled",
+                checked   = shakeOn,
+                onToggle  = { v -> shakeOn = v; PreferencesHelper.setShakeEnabled(ctx, v) }
+            )
+            HorizontalDivider(color = Border, modifier = Modifier.padding(start = 64.dp, end = 0.dp))
+            SettingRow(
+                icon      = Icons.Rounded.CameraAlt,
+                title     = "Evidence Camera",
+                subtitle  = if (cameraOn) "Captures front & back photos on alert" else "Disabled",
+                checked   = cameraOn,
+                onToggle  = { v ->
+                    if (v) {
+                        val ok = ContextCompat.checkSelfPermission(
+                            ctx, Manifest.permission.CAMERA
+                        ) == PackageManager.PERMISSION_GRANTED
+                        if (ok) { cameraOn = true; PreferencesHelper.setCameraOnSosEnabled(ctx, true) }
+                        else camLauncher.launch(Manifest.permission.CAMERA)
+                    } else {
+                        cameraOn = false; PreferencesHelper.setCameraOnSosEnabled(ctx, false)
+                    }
+                }
             )
         }
     }
 }
 
 @Composable
-fun FloatingBottomNavBar(
-    currentTab: String,
-    onTabSelected: (String) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val context = LocalContext.current
-
-    Box(
-        modifier = modifier
-            .padding(start = 24.dp, end = 24.dp, bottom = 40.dp)
-            .fillMaxWidth()
-            .height(80.dp),
-        contentAlignment = Alignment.Center
+private fun StatusPill() {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(Surf2)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        // The Bar itself
-        Card(
-            shape = RoundedCornerShape(40.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f)),
-            elevation = CardDefaults.cardElevation(defaultElevation = 16.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(70.dp)
-                .align(Alignment.BottomCenter)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxSize(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Camouflage Tab
-                NavBarItem(
-                    title = "Stealth",
-                    icon = "HIDE",
-                    isSelected = currentTab == "Camouflage",
-                    onClick = { onTabSelected("Camouflage") }
-                )
-                
-                // Spacer for center SOS button
-                Spacer(modifier = Modifier.width(80.dp))
-                
-                // Contacts Tab
-                NavBarItem(
-                    title = "Network",
-                    icon = "TEAM",
-                    isSelected = currentTab == "Contacts",
-                    onClick = { onTabSelected("Contacts") }
-                )
-            }
-        }
+        Box(Modifier.size(6.dp).clip(CircleShape).background(GreenOn))
+        Text("Active", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = GreenOn)
+    }
+}
 
-        // Floating Overlapping SOS Button in the Center
-        val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-        val scale by infiniteTransition.animateFloat(
-            initialValue = 1f,
-            targetValue = 1.15f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(1000, easing = FastOutSlowInEasing),
-                repeatMode = RepeatMode.Reverse
-            ), label = "pulse_scale"
-        )
+@Composable
+private fun SosHeroButton(onClick: () -> Unit) {
+    val inf = rememberInfiniteTransition(label = "sos_rings")
+    val r1a by inf.animateFloat(0.25f, 0f,
+        infiniteRepeatable(tween(2200, easing = LinearEasing), RepeatMode.Restart), label = "r1a")
+    val r1s by inf.animateFloat(1f, 1.7f,
+        infiniteRepeatable(tween(2200, easing = LinearEasing), RepeatMode.Restart), label = "r1s")
+    val r2a by inf.animateFloat(0.15f, 0f,
+        infiniteRepeatable(tween(2200, 800, easing = LinearEasing), RepeatMode.Restart), label = "r2a")
+    val r2s by inf.animateFloat(1f, 1.7f,
+        infiniteRepeatable(tween(2200, 800, easing = LinearEasing), RepeatMode.Restart), label = "r2s")
 
+    Box(Modifier.size(190.dp), contentAlignment = Alignment.Center) {
+        // Pulsing rings
+        Box(Modifier.size(148.dp).scale(r2s).alpha(r2a).clip(CircleShape).background(Primary))
+        Box(Modifier.size(148.dp).scale(r1s).alpha(r1a).clip(CircleShape).background(Primary))
+
+        // Button
         Box(
             modifier = Modifier
-                .size(85.dp)
-                .offset(y = (-20).dp)
-                .scale(scale)
+                .size(148.dp)
                 .clip(CircleShape)
                 .background(
                     Brush.radialGradient(
-                        colors = listOf(Color(0xFFFF5252), Color(0xFFD32F2F))
+                        colors = listOf(Color(0xFFE8384F), Color(0xFF9B1B30)),
+                        radius = 220f
                     )
                 )
-                .clickable {
-                    // Always read fresh contacts at trigger time
-                    val contacts = PreferencesHelper.getContacts(context)
-                    LocationHelper.sendSosWithLocation(context, contacts)
-                    onTabSelected("SOS")
-                },
+                .clickable { onClick() },
             contentAlignment = Alignment.Center
         ) {
-            Text("SOS", color = Color.White, fontWeight = FontWeight.Black, fontSize = 24.sp)
-        }
-    }
-}
-
-@Composable
-fun NavBarItem(title: String, icon: String, isSelected: Boolean, onClick: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Text(
-            text = icon,
-            fontWeight = FontWeight.Bold,
-            fontSize = 14.sp,
-            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Text(
-            text = title,
-            fontSize = 12.sp,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
-
-@Composable
-fun SosScreen() {
-    val context = LocalContext.current
-    var contacts by remember { mutableStateOf(PreferencesHelper.getContacts(context)) }
-
-    Column(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            text = "SafeHer",
-            fontSize = 48.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = MaterialTheme.colorScheme.primary,
-            letterSpacing = 2.sp
-        )
-        Text(
-            text = "Your digital bodyguard.",
-            fontSize = 18.sp,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-            modifier = Modifier.padding(bottom = 60.dp)
-        )
-
-        // Large status indicator
-        Card(
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-            modifier = Modifier.fillMaxWidth().height(200.dp)
-        ) {
             Column(
-                modifier = Modifier.fillMaxSize(),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
+                Icon(
+                    Icons.Rounded.Warning,
+                    contentDescription = "SOS",
+                    tint = Color.White.copy(alpha = 0.75f),
+                    modifier = Modifier.size(22.dp)
+                )
                 Text(
-                    text = "STATUS",
-                    fontSize = 14.sp,
+                    text = "SOS",
+                    fontSize = 26.sp,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                )
-                Text(
-                    text = "ACTIVE",
-                    fontSize = 32.sp,
-                    fontWeight = FontWeight.Black,
-                    color = Color(0xFF388E3C),
-                    modifier = Modifier.padding(vertical = 8.dp)
-                )
-                Text(
-                    text = "${contacts.size} Emergency Contacts Linked",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = Color.White,
+                    letterSpacing = 5.sp
                 )
             }
         }
@@ -264,163 +317,335 @@ fun SosScreen() {
 }
 
 @Composable
-fun CamouflageScreen(onExit: () -> Unit) {
-    // A fake Calculator UI to hide the app's true purpose
-    var displayText by remember { mutableStateOf("0") }
-    
-    val context = LocalContext.current
-    
-    Column(
+private fun SectionLabel(text: String) {
+    Text(
+        text = text,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.Medium,
+        color = TxtMuted,
+        letterSpacing = 1.5.sp,
+        modifier = Modifier.padding(horizontal = 4.dp)
+    )
+}
+
+@Composable
+private fun SettingRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onToggle: (Boolean) -> Unit
+) {
+    Row(
         modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.Bottom
-    ) {
-        // Display
-        Text(
-            text = displayText,
-            fontSize = 64.sp,
-            color = Color.White,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 32.dp, end = 16.dp),
-            textAlign = TextAlign.End
-        )
-        
-        // Keypad
-        val buttons = listOf(
-            listOf("7", "8", "9", "÷"),
-            listOf("4", "5", "6", "×"),
-            listOf("1", "2", "3", "-"),
-            listOf("C", "0", "=", "+")
-        )
-        
-        for (row in buttons) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 16.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                for (btn in row) {
-                    Box(
-                        modifier = Modifier
-                            .size(72.dp)
-                            .clip(CircleShape)
-                            .background(Color.DarkGray)
-                            .clickable {
-                                if (btn == "C") displayText = "0"
-                                else if (btn == "=") {
-                                    // Trigger SOS on equals press!
-                                    val contacts = PreferencesHelper.getContacts(context)
-                                    LocationHelper.sendSosWithLocation(context, contacts, "[STEALTH SOS] Emergency triggered from calculator!")
-                                    displayText = "Error"
-                                }
-                                else if (displayText == "0" || displayText == "Error") displayText = btn
-                                else displayText += btn
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(text = btn, fontSize = 28.sp, color = Color.White)
-                    }
-                }
-            }
-        }
-        
-        // Secret exit button at the very bottom
-        Box(modifier = Modifier
             .fillMaxWidth()
-            .height(40.dp)
-            .clickable { onExit() })
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(Surf2),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, contentDescription = null, tint = TxtSub, modifier = Modifier.size(18.dp))
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = TxtHi)
+            Text(subtitle, fontSize = 12.sp, color = TxtMuted)
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onToggle,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor   = Color.White,
+                checkedTrackColor   = Primary,
+                uncheckedThumbColor = Surf2,
+                uncheckedTrackColor = Border,
+                uncheckedBorderColor = Border
+            )
+        )
     }
 }
 
+// ── Network (Contacts) Screen ─────────────────────────────────────────────────
+
 @Composable
-fun ContactsScreen() {
-    val context = LocalContext.current
-    var contacts by remember { mutableStateOf(PreferencesHelper.getContacts(context)) }
-    var newContact by remember { mutableStateOf("") }
+fun NetworkScreen() {
+    val ctx = LocalContext.current
+    var contacts  by remember { mutableStateOf(PreferencesHelper.getContacts(ctx)) }
+    var newNumber by remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp)
-            .padding(top = 40.dp, bottom = 120.dp) // Bottom padding for floating bar
+            .background(BG)
+            .padding(horizontal = 24.dp)
+            .padding(top = 56.dp, bottom = 110.dp)
     ) {
+        // Header
+        Text("Guardians", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = TxtHi)
+        Spacer(Modifier.height(4.dp))
         Text(
-            text = "Emergency Network",
-            fontSize = 28.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(bottom = 24.dp)
+            text = if (contacts.isEmpty()) "Add trusted contacts who will be alerted in emergencies."
+                   else "${contacts.size} contact${if (contacts.size != 1) "s" else ""} ready",
+            fontSize = 14.sp,
+            color = TxtSub
         )
 
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        Spacer(Modifier.height(28.dp))
+
+        // Add contact row
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                OutlinedTextField(
-                    value = newContact,
-                    onValueChange = { newContact = it },
-                    label = { Text("Phone Number") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    shape = RoundedCornerShape(16.dp)
+            OutlinedTextField(
+                value = newNumber,
+                onValueChange = { newNumber = it },
+                placeholder = { Text("+91 98765 43210", color = TxtMuted, fontSize = 14.sp) },
+                singleLine = true,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor     = Primary,
+                    unfocusedBorderColor   = Border,
+                    focusedTextColor       = TxtHi,
+                    unfocusedTextColor     = TxtHi,
+                    cursorColor            = Primary,
+                    focusedContainerColor  = Surf1,
+                    unfocusedContainerColor = Surf1
                 )
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(
-                    onClick = {
-                        if (newContact.isNotBlank()) {
-                            val updated = contacts + newContact
-                            PreferencesHelper.saveContacts(context, updated)
-                            contacts = updated
-                            newContact = ""
-                        }
+            )
+            val canAdd = newNumber.isNotBlank()
+            Box(
+                modifier = Modifier
+                    .size(52.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (canAdd) Primary else Surf2)
+                    .clickable(enabled = canAdd) {
+                        val updated = contacts + newNumber.trim()
+                        PreferencesHelper.saveContacts(ctx, updated)
+                        contacts = updated
+                        newNumber = ""
                     },
-                    modifier = Modifier.fillMaxWidth().height(50.dp),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Text("Add Guardian", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                }
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Rounded.Add, null,
+                    tint = if (canAdd) Color.White else TxtMuted,
+                    modifier = Modifier.size(22.dp))
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(Modifier.height(28.dp))
 
-        LazyColumn(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            items(contacts) { contact ->
-                Card(
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        if (contacts.isEmpty()) {
+            // Empty state
+            Column(
+                Modifier.fillMaxWidth().padding(vertical = 48.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Box(
+                    Modifier.size(56.dp).clip(RoundedCornerShape(16.dp)).background(Surf1),
+                    contentAlignment = Alignment.Center
                 ) {
+                    Icon(Icons.Rounded.Group, null, tint = TxtMuted, modifier = Modifier.size(28.dp))
+                }
+                Text("No guardians yet", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = TxtSub)
+                Text(
+                    "Add a phone number above to get started.",
+                    fontSize = 13.sp, color = TxtMuted, textAlign = TextAlign.Center
+                )
+            }
+        } else {
+            SectionLabel("CONTACTS")
+            Spacer(Modifier.height(8.dp))
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                items(contacts.size) { i ->
+                    val contact = contacts[i]
+                    val isFirst = i == 0
+                    val isLast  = i == contacts.lastIndex
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(20.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                            .clip(
+                                RoundedCornerShape(
+                                    topStart    = if (isFirst) 16.dp else 4.dp,
+                                    topEnd      = if (isFirst) 16.dp else 4.dp,
+                                    bottomStart = if (isLast) 16.dp else 4.dp,
+                                    bottomEnd   = if (isLast) 16.dp else 4.dp
+                                )
+                            )
+                            .background(Surf1)
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        Text(text = contact, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                        Button(
-                            onClick = {
-                                val updated = contacts.filter { it != contact }
-                                PreferencesHelper.saveContacts(context, updated)
-                                contacts = updated
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                            shape = RoundedCornerShape(12.dp)
+                        Box(
+                            Modifier.size(36.dp).clip(CircleShape).background(Surf2),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Text("Remove", fontWeight = FontWeight.Bold)
+                            Icon(Icons.Rounded.Person, null, tint = TxtSub, modifier = Modifier.size(18.dp))
+                        }
+                        Text(
+                            contact,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = TxtHi,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Primary.copy(alpha = 0.12f))
+                                .clickable {
+                                    val updated = contacts.filterIndexed { idx, _ -> idx != i }
+                                    PreferencesHelper.saveContacts(ctx, updated)
+                                    contacts = updated
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Rounded.Close, null, tint = Primary, modifier = Modifier.size(15.dp))
                         }
                     }
+                    if (!isLast) HorizontalDivider(color = Border, modifier = Modifier.padding(start = 66.dp))
                 }
             }
         }
     }
+}
+
+// ── Stealth Calculator ─────────────────────────────────────────────────────────
+// TAP = → calculate normally
+// HOLD = → silent SOS (sends alert + captures photos)
+// TAP AC three times quickly → exit to real app
+
+@Composable
+fun CamouflageScreen(onExit: () -> Unit) {
+    val context = LocalContext.current
+
+    var display      by remember { mutableStateOf("0") }
+    var firstOperand by remember { mutableStateOf(0.0) }
+    var pendingOp    by remember { mutableStateOf("") }
+    var clearOnNext  by remember { mutableStateOf(false) }
+    var currentInput by remember { mutableStateOf("") }
+    var acTaps       by remember { mutableStateOf(0) }
+    var lastAcTime   by remember { mutableStateOf(0L) }
+
+    fun fmt(v: Double): String {
+        if (v.isNaN() || v.isInfinite()) return "Error"
+        val l = v.toLong()
+        return if (v == l.toDouble()) l.toString() else "%.8g".format(v)
+    }
+    fun onDigit(d: String) {
+        if (clearOnNext) { display = d; currentInput = d; clearOnNext = false }
+        else { if (display == "0") { display = d; currentInput = d } else { display += d; currentInput += d } }
+    }
+    fun onOperator(op: String) { firstOperand = display.toDoubleOrNull() ?: 0.0; pendingOp = op; clearOnNext = true; currentInput = "" }
+    fun onEquals() {
+        if (pendingOp.isEmpty()) return
+        val s = display.toDoubleOrNull() ?: 0.0
+        val r = when (pendingOp) {
+            "+" -> firstOperand + s; "-" -> firstOperand - s
+            "×" -> firstOperand * s; "÷" -> if (s != 0.0) firstOperand / s else Double.NaN
+            else -> s
+        }
+        display = fmt(r); pendingOp = ""; clearOnNext = true; currentInput = ""
+    }
+    fun onAC() {
+        val now = System.currentTimeMillis()
+        acTaps = if (now - lastAcTime < 2000) acTaps + 1 else 1; lastAcTime = now
+        if (acTaps >= 3) { onExit(); return }
+        display = "0"; firstOperand = 0.0; pendingOp = ""; clearOnNext = false; currentInput = ""
+    }
+    fun onPlusMinus() { val v = display.toDoubleOrNull() ?: return; display = fmt(-v) }
+    fun onPercent()   { val v = display.toDoubleOrNull() ?: return; display = fmt(v / 100.0); currentInput = "" }
+    fun onDot()       { if (clearOnNext) { display = "0."; clearOnNext = false; return }; if (!display.contains(".")) display += "." }
+
+    val orange    = Color(0xFFFF9F0A)
+    val darkGray  = Color(0xFF1C1C1C)
+    val lightGray = Color(0xFF505050)
+    val gap       = 10.dp
+    val bh        = 78.dp
+
+    Column(
+        Modifier.fillMaxSize().background(Color(0xFF000000)).padding(horizontal = 12.dp),
+        verticalArrangement = Arrangement.Bottom
+    ) {
+        Text(
+            display,
+            fontSize     = if (display.length > 9) 42.sp else 68.sp,
+            color        = Color.White,
+            fontWeight   = FontWeight.Light,
+            maxLines     = 1,
+            textAlign    = TextAlign.End,
+            modifier     = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 18.dp)
+        )
+        // Row 1: functions
+        Row(Modifier.fillMaxWidth().padding(bottom = gap), horizontalArrangement = Arrangement.spacedBy(gap)) {
+            CalcBtn("AC",  lightGray, Color.White, Modifier.weight(1f), bh) { onAC() }
+            CalcBtn("+/-", lightGray, Color.White, Modifier.weight(1f), bh) { onPlusMinus() }
+            CalcBtn("%",   lightGray, Color.White, Modifier.weight(1f), bh) { onPercent() }
+            CalcBtn("÷",   orange,    Color.White, Modifier.weight(1f), bh) { onOperator("÷") }
+        }
+        Row(Modifier.fillMaxWidth().padding(bottom = gap), horizontalArrangement = Arrangement.spacedBy(gap)) {
+            CalcBtn("7", darkGray, Color.White, Modifier.weight(1f), bh) { onDigit("7") }
+            CalcBtn("8", darkGray, Color.White, Modifier.weight(1f), bh) { onDigit("8") }
+            CalcBtn("9", darkGray, Color.White, Modifier.weight(1f), bh) { onDigit("9") }
+            CalcBtn("×", orange,   Color.White, Modifier.weight(1f), bh) { onOperator("×") }
+        }
+        Row(Modifier.fillMaxWidth().padding(bottom = gap), horizontalArrangement = Arrangement.spacedBy(gap)) {
+            CalcBtn("4", darkGray, Color.White, Modifier.weight(1f), bh) { onDigit("4") }
+            CalcBtn("5", darkGray, Color.White, Modifier.weight(1f), bh) { onDigit("5") }
+            CalcBtn("6", darkGray, Color.White, Modifier.weight(1f), bh) { onDigit("6") }
+            CalcBtn("-", orange,   Color.White, Modifier.weight(1f), bh) { onOperator("-") }
+        }
+        Row(Modifier.fillMaxWidth().padding(bottom = gap), horizontalArrangement = Arrangement.spacedBy(gap)) {
+            CalcBtn("1", darkGray, Color.White, Modifier.weight(1f), bh) { onDigit("1") }
+            CalcBtn("2", darkGray, Color.White, Modifier.weight(1f), bh) { onDigit("2") }
+            CalcBtn("3", darkGray, Color.White, Modifier.weight(1f), bh) { onDigit("3") }
+            CalcBtn("+", orange,   Color.White, Modifier.weight(1f), bh) { onOperator("+") }
+        }
+        // Row 5: wide 0, dot, equals (long-press = SOS)
+        Row(Modifier.fillMaxWidth().padding(bottom = 28.dp), horizontalArrangement = Arrangement.spacedBy(gap)) {
+            Box(
+                modifier = Modifier.weight(2f).height(bh)
+                    .clip(RoundedCornerShape(50)).background(darkGray)
+                    .clickable { onDigit("0") },
+                contentAlignment = Alignment.CenterStart
+            ) { Text("0", fontSize = 30.sp, color = Color.White, modifier = Modifier.padding(start = 26.dp)) }
+
+            CalcBtn(".", orange, Color.White, Modifier.weight(1f), bh) { onDot() }
+
+            Box(
+                modifier = Modifier.weight(1f).height(bh)
+                    .clip(CircleShape).background(orange)
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onTap = { onEquals() },
+                            onLongPress = {
+                                val c = PreferencesHelper.getContacts(context)
+                                LocationHelper.sendSosWithLocation(context, c, "[STEALTH SOS] Emergency triggered silently!")
+                                CameraHelper.capturePhotosOnSos(context)
+                                display = "Error"; currentInput = ""
+                            }
+                        )
+                    },
+                contentAlignment = Alignment.Center
+            ) { Text("=", fontSize = 30.sp, color = Color.White, fontWeight = FontWeight.Normal) }
+        }
+    }
+}
+
+@Composable
+private fun CalcBtn(label: String, bg: Color, fg: Color, modifier: Modifier, height: androidx.compose.ui.unit.Dp, onClick: () -> Unit) {
+    Box(
+        modifier = modifier.height(height).clip(CircleShape).background(bg).clickable { onClick() },
+        contentAlignment = Alignment.Center
+    ) { Text(label, fontSize = 28.sp, color = fg, fontWeight = FontWeight.Normal) }
 }

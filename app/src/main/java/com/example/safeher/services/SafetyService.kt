@@ -17,6 +17,7 @@ import android.os.IBinder
 import android.os.VibrationEffect
 import android.os.VibratorManager
 import androidx.core.app.NotificationCompat
+import com.example.safeher.utils.CameraHelper
 import com.example.safeher.utils.LocationHelper
 import com.example.safeher.utils.PreferencesHelper
 
@@ -117,17 +118,19 @@ class SafetyService : Service(), SensorEventListener {
     override fun onBind(intent: Intent?): IBinder? = null
     
     override fun onSensorChanged(event: SensorEvent?) {
+        // Respect the shake-enabled toggle from Settings
+        if (!PreferencesHelper.isShakeEnabled(this)) return
+
         if (event == null) return
         val curTime = System.currentTimeMillis()
         if ((curTime - lastUpdate) > 100) {
             val diffTime = curTime - lastUpdate
             lastUpdate = curTime
-            
+
             val x = event.values[0]
             val y = event.values[1]
             val z = event.values[2]
-            
-            // Correctly compute shake magnitude using individual deltas
+
             val deltaX = x - last_x
             val deltaY = y - last_y
             val deltaZ = z - last_z
@@ -135,7 +138,7 @@ class SafetyService : Service(), SensorEventListener {
             if (speed > SHAKE_THRESHOLD) {
                 triggerSOS("[SHAKE SOS] Shake trigger activated!")
             }
-            
+
             last_x = x
             last_y = y
             last_z = z
@@ -147,12 +150,15 @@ class SafetyService : Service(), SensorEventListener {
     private var lastSosTime: Long = 0
     private fun triggerSOS(messagePrefix: String) {
         val curTime = System.currentTimeMillis()
-        if (curTime - lastSosTime > 30000) { // Cooldown of 30 seconds
+        if (curTime - lastSosTime > 30000) { // 30-second cooldown
             lastSosTime = curTime
             val contacts = PreferencesHelper.getContacts(this)
             LocationHelper.sendSosWithLocation(this, contacts, messagePrefix)
-            
-            // Vibrate to confirm
+
+            // 📸 Silently capture photos from both cameras if toggle is ON
+            CameraHelper.capturePhotosOnSos(this)
+
+            // Vibrate to confirm SOS was sent
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
                 val vibrator = vibratorManager.defaultVibrator
