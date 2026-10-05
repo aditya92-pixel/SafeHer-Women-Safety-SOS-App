@@ -40,7 +40,9 @@ object LocationHelper {
             return
         }
 
-        Toast.makeText(context, "Acquiring GPS Location...", Toast.LENGTH_SHORT).show()
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            Toast.makeText(context, "Acquiring GPS Location...", Toast.LENGTH_SHORT).show()
+        }
 
         val fusedLocationClient: FusedLocationProviderClient = 
             LocationServices.getFusedLocationProviderClient(context)

@@ -81,10 +81,12 @@ class SafetyService : Service(), SensorEventListener {
         }
         
         // Initialize Receivers
-        registerReceiver(batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_LOW))
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_LOW), RECEIVER_EXPORTED)
             registerReceiver(volumeReceiver, IntentFilter("android.media.VOLUME_CHANGED_ACTION"), RECEIVER_NOT_EXPORTED)
         } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            registerReceiver(batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_LOW))
             @Suppress("UnspecifiedRegisterReceiverFlag")
             registerReceiver(volumeReceiver, IntentFilter("android.media.VOLUME_CHANGED_ACTION"))
         }
@@ -111,20 +113,18 @@ class SafetyService : Service(), SensorEventListener {
     override fun onDestroy() {
         super.onDestroy()
         sensorManager.unregisterListener(this)
-        unregisterReceiver(batteryReceiver)
-        unregisterReceiver(volumeReceiver)
+        try { unregisterReceiver(batteryReceiver) } catch (_: Exception) {}
+        try { unregisterReceiver(volumeReceiver) } catch (_: Exception) {}
     }
     
     override fun onBind(intent: Intent?): IBinder? = null
     
     override fun onSensorChanged(event: SensorEvent?) {
-        // Respect the shake-enabled toggle from Settings
-        if (!PreferencesHelper.isShakeEnabled(this)) return
-
         if (event == null) return
         val curTime = System.currentTimeMillis()
         if ((curTime - lastUpdate) > 100) {
             val diffTime = curTime - lastUpdate
+            if (diffTime <= 0) return
             lastUpdate = curTime
 
             val x = event.values[0]
@@ -135,7 +135,7 @@ class SafetyService : Service(), SensorEventListener {
             val deltaY = y - last_y
             val deltaZ = z - last_z
             val speed = Math.sqrt((deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ).toDouble()) / diffTime * 10000
-            if (speed > SHAKE_THRESHOLD) {
+            if (speed > SHAKE_THRESHOLD && PreferencesHelper.isShakeEnabled(this)) {
                 triggerSOS("[SHAKE SOS] Shake trigger activated!")
             }
 

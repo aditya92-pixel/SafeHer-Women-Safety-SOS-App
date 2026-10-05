@@ -3,11 +3,19 @@ package com.example.safeher.utils
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.os.Handler
+import android.os.Looper
 import android.telephony.SmsManager
 import android.widget.Toast
 import androidx.core.content.ContextCompat
 
 object SmsHelper {
+
+    private fun showToast(context: Context, text: String, length: Int = Toast.LENGTH_SHORT) {
+        Handler(Looper.getMainLooper()).post {
+            Toast.makeText(context.applicationContext, text, length).show()
+        }
+    }
 
     /**
      * Sends an SMS message to a list of emergency contacts.
@@ -21,12 +29,14 @@ object SmsHelper {
         ) == PackageManager.PERMISSION_GRANTED
 
         if (!hasPermission) {
-            Toast.makeText(context, "SMS Permission is missing! Cannot send SOS.", Toast.LENGTH_LONG).show()
+            showToast(context, "SMS Permission is missing! Cannot send SOS.", Toast.LENGTH_LONG)
             return
         }
 
-        if (phoneNumbers.isEmpty()) {
-            Toast.makeText(context, "No emergency contacts configured.", Toast.LENGTH_SHORT).show()
+        val validNumbers = phoneNumbers.map { it.trim() }.filter { it.isNotBlank() }
+
+        if (validNumbers.isEmpty()) {
+            showToast(context, "No emergency contacts configured.", Toast.LENGTH_SHORT)
             return
         }
 
@@ -40,7 +50,7 @@ object SmsHelper {
             }
 
             // 3. Send SMS to each contact
-            for (phoneNumber in phoneNumbers) {
+            for (phoneNumber in validNumbers) {
                 // If the message is long, we need to divide it into parts
                 val parts = smsManager.divideMessage(message)
                 if (parts.size > 1) {
@@ -50,11 +60,11 @@ object SmsHelper {
                 }
             }
             
-            Toast.makeText(context, "Emergency SMS Sent to ${phoneNumbers.size} contacts!", Toast.LENGTH_SHORT).show()
+            showToast(context, "Emergency SMS Sent to ${validNumbers.size} contact(s)!", Toast.LENGTH_SHORT)
 
         } catch (e: Exception) {
             e.printStackTrace()
-            Toast.makeText(context, "Failed to send SMS: ${e.message}", Toast.LENGTH_LONG).show()
+            showToast(context, "Failed to send SMS: ${e.message}", Toast.LENGTH_LONG)
         }
     }
 }
