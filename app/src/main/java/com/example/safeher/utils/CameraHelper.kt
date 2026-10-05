@@ -1,6 +1,8 @@
 package com.example.safeher.utils
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -35,6 +37,14 @@ object CameraHelper {
     fun capturePhotosOnSos(context: Context) {
         if (!PreferencesHelper.isCameraOnSosEnabled(context)) {
             Log.d(TAG, "Camera capture disabled — skipping.")
+            return
+        }
+        val hasPermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!hasPermission) {
+            Log.d(TAG, "Camera permission not granted — skipping.")
             return
         }
         val appContext = context.applicationContext
