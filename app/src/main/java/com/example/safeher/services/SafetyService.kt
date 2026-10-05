@@ -54,13 +54,35 @@ class SafetyService : Service(), SensorEventListener {
         }
     }
 
+    private var powerPressCount = 0
+    private var lastPowerPressTime: Long = 0
+
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val action = intent?.action
+            if (action == Intent.ACTION_SCREEN_OFF || action == Intent.ACTION_SCREEN_ON) {
+                val currentTime = System.currentTimeMillis()
+                if (currentTime - lastPowerPressTime > 3000) {
+                    powerPressCount = 0
+                }
+                powerPressCount++
+                lastPowerPressTime = currentTime
+
+                if (powerPressCount >= 3) {
+                    triggerSOS("[POWER BUTTON SOS] Power button triple-press emergency activated!")
+                    powerPressCount = 0
+                }
+            }
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
         try {
             val notification = NotificationCompat.Builder(this, "SafetyServiceChannel")
                 .setContentTitle("SafeHer Shield Active")
-                .setContentText("Listening for Shake and Volume triggers")
+                .setContentText("Listening for Shake, Power Button & Volume triggers")
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .build()
                 
@@ -81,14 +103,22 @@ class SafetyService : Service(), SensorEventListener {
         }
         
         // Initialize Receivers
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_SCREEN_ON)
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_LOW), RECEIVER_EXPORTED)
             registerReceiver(volumeReceiver, IntentFilter("android.media.VOLUME_CHANGED_ACTION"), RECEIVER_NOT_EXPORTED)
+            registerReceiver(screenReceiver, filter, RECEIVER_EXPORTED)
         } else {
             @Suppress("UnspecifiedRegisterReceiverFlag")
             registerReceiver(batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_LOW))
             @Suppress("UnspecifiedRegisterReceiverFlag")
             registerReceiver(volumeReceiver, IntentFilter("android.media.VOLUME_CHANGED_ACTION"))
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            registerReceiver(screenReceiver, filter)
         }
     }
     
@@ -115,6 +145,7 @@ class SafetyService : Service(), SensorEventListener {
         sensorManager.unregisterListener(this)
         try { unregisterReceiver(batteryReceiver) } catch (_: Exception) {}
         try { unregisterReceiver(volumeReceiver) } catch (_: Exception) {}
+        try { unregisterReceiver(screenReceiver) } catch (_: Exception) {}
     }
     
     override fun onBind(intent: Intent?): IBinder? = null

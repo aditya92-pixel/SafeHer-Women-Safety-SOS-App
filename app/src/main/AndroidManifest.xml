@@ -38,6 +38,29 @@
             android:foregroundServiceType="location"
             android:exported="false" />
 
+        <service
+            android:name=".services.SosTileService"
+            android:icon="@mipmap/ic_launcher"
+            android:label="SafeHer SOS"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <receiver
+            android:name=".utils.SosWidget"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.example.safeher.ACTION_WIDGET_TRIGGER_SOS" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/sos_widget_info" />
+        </receiver>
+
     </application>
 
 </manifest>

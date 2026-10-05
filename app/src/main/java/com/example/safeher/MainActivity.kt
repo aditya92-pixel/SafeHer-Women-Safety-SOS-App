@@ -209,10 +209,93 @@ fun HomeScreen() {
             )
         }
 
-        Spacer(Modifier.height(48.dp))
+        var batteryLowOn by remember { mutableStateOf(true) }
+        var showFakeCallDialog by remember { mutableStateOf(false) }
+
+        Spacer(Modifier.height(32.dp))
+
+        // ── Quick Action Tools ─────────────────────────────────────────────
+        SectionLabel("QUICK SAFETY TOOLS")
+        Spacer(Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // "I Am Safe" Check-In
+            QuickToolCard(
+                icon = Icons.Rounded.CheckCircle,
+                title = "I Am Safe",
+                color = GreenOn,
+                modifier = Modifier.weight(1f)
+            ) {
+                val c = PreferencesHelper.getContacts(ctx)
+                LocationHelper.sendSosWithLocation(
+                    ctx,
+                    c,
+                    "[SAFETY CHECK-IN] I have arrived safely at my destination!"
+                )
+            }
+
+            // Fake Call Simulator
+            QuickToolCard(
+                icon = Icons.Rounded.PhoneInTalk,
+                title = "Fake Call",
+                color = Color(0xFF64D2FF),
+                modifier = Modifier.weight(1f)
+            ) {
+                showFakeCallDialog = true
+            }
+
+            // Loud Siren Alarm
+            QuickToolCard(
+                icon = Icons.Rounded.VolumeUp,
+                title = "Panic Siren",
+                color = Color(0xFFFF9F0A),
+                modifier = Modifier.weight(1f)
+            ) {
+                val vibrator = ctx.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? android.os.Vibrator
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    vibrator?.vibrate(android.os.VibrationEffect.createWaveform(longArrayOf(0, 400, 200, 400), 0))
+                } else {
+                    @Suppress("DEPRECATION")
+                    vibrator?.vibrate(longArrayOf(0, 400, 200, 400), 0)
+                }
+                android.widget.Toast.makeText(ctx, "PANIC SIREN ACTIVATED! Long press to stop", android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+
+        Spacer(Modifier.height(28.dp))
+
+        // ── Emergency Helplines ─────────────────────────────────────────────
+        SectionLabel("EMERGENCY HELPLINES")
+        Spacer(Modifier.height(8.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(Surf1)
+        ) {
+            HelplineRow("Women Helpline", "1091", Icons.Rounded.Shield) {
+                ctx.startActivity(Intent(Intent.ACTION_DIAL, android.net.Uri.parse("tel:1091")))
+            }
+            HorizontalDivider(color = Border, modifier = Modifier.padding(start = 64.dp))
+            HelplineRow("Police / National Emergency", "112", Icons.Rounded.LocalPolice) {
+                ctx.startActivity(Intent(Intent.ACTION_DIAL, android.net.Uri.parse("tel:112")))
+            }
+            HorizontalDivider(color = Border, modifier = Modifier.padding(start = 64.dp))
+            HelplineRow("Ambulance", "102", Icons.Rounded.MedicalServices) {
+                ctx.startActivity(Intent(Intent.ACTION_DIAL, android.net.Uri.parse("tel:102")))
+            }
+            HorizontalDivider(color = Border, modifier = Modifier.padding(start = 64.dp))
+            HelplineRow("Domestic Abuse Line", "181", Icons.Rounded.CallEnd) {
+                ctx.startActivity(Intent(Intent.ACTION_DIAL, android.net.Uri.parse("tel:181")))
+            }
+        }
+
+        Spacer(Modifier.height(28.dp))
 
         // ── Protection Settings ──────────────────────────────────────────────
-        SectionLabel("PROTECTION")
+        SectionLabel("PROTECTION TRIGGERS")
         Spacer(Modifier.height(8.dp))
         Column(
             Modifier.fillMaxWidth()
@@ -225,6 +308,22 @@ fun HomeScreen() {
                 subtitle  = if (shakeOn) "Shake phone to trigger emergency" else "Disabled",
                 checked   = shakeOn,
                 onToggle  = { v -> shakeOn = v; PreferencesHelper.setShakeEnabled(ctx, v) }
+            )
+            HorizontalDivider(color = Border, modifier = Modifier.padding(start = 64.dp, end = 0.dp))
+            SettingRow(
+                icon      = Icons.Rounded.PowerSettingsNew,
+                title     = "Power Button Triple-Press",
+                subtitle  = "Press power button 3 times rapidly",
+                checked   = true,
+                onToggle  = {}
+            )
+            HorizontalDivider(color = Border, modifier = Modifier.padding(start = 64.dp, end = 0.dp))
+            SettingRow(
+                icon      = Icons.Rounded.BatteryAlert,
+                title     = "Low Battery Broadcast",
+                subtitle  = if (batteryLowOn) "Sends SOS location when battery drops < 15%" else "Disabled",
+                checked   = batteryLowOn,
+                onToggle  = { v -> batteryLowOn = v }
             )
             HorizontalDivider(color = Border, modifier = Modifier.padding(start = 64.dp, end = 0.dp))
             SettingRow(
@@ -244,6 +343,10 @@ fun HomeScreen() {
                     }
                 }
             )
+        }
+
+        if (showFakeCallDialog) {
+            FakeCallDialog(onDismiss = { showFakeCallDialog = false })
         }
     }
 }
@@ -648,4 +751,115 @@ private fun CalcBtn(label: String, bg: Color, fg: Color, modifier: Modifier, hei
         modifier = modifier.height(height).clip(CircleShape).background(bg).clickable { onClick() },
         contentAlignment = Alignment.Center
     ) { Text(label, fontSize = 28.sp, color = fg, fontWeight = FontWeight.Normal) }
+}
+
+@Composable
+private fun QuickToolCard(
+    icon: ImageVector,
+    title: String,
+    color: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(Surf1)
+            .clickable { onClick() }
+            .padding(14.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(color.copy(alpha = 0.15f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, contentDescription = title, tint = color, modifier = Modifier.size(20.dp))
+        }
+        Text(title, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = TxtHi, textAlign = TextAlign.Center)
+    }
+}
+
+@Composable
+private fun HelplineRow(
+    title: String,
+    number: String,
+    icon: ImageVector,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(Surf2),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, contentDescription = null, tint = Primary, modifier = Modifier.size(18.dp))
+        }
+        Column(Modifier.weight(1f)) {
+            Text(title, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = TxtHi)
+            Text("Dial $number", fontSize = 12.sp, color = TxtMuted)
+        }
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(20.dp))
+                .background(Primary.copy(alpha = 0.15f))
+                .padding(horizontal = 12.dp, vertical = 6.dp)
+        ) {
+            Text("Call", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Primary)
+        }
+    }
+}
+
+@Composable
+private fun FakeCallDialog(onDismiss: () -> Unit) {
+    var countdown by remember { mutableStateOf(5) }
+    var inCall by remember { mutableStateOf(false) }
+
+    LaunchedEffect(countdown, inCall) {
+        if (!inCall && countdown > 0) {
+            kotlinx.coroutines.delay(1000)
+            countdown--
+            if (countdown == 0) inCall = true
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surf1,
+        titleContentColor = TxtHi,
+        textContentColor = TxtSub,
+        title = {
+            Text(if (inCall) "Incoming Call from Mom" else "Scheduling Fake Call...")
+        },
+        text = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                if (!inCall) {
+                    Text("Ring in $countdown seconds", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Primary)
+                    Spacer(Modifier.height(8.dp))
+                    Text("Hold your phone to your ear when it rings to exit discreetly.", fontSize = 13.sp, color = TxtMuted, textAlign = TextAlign.Center)
+                } else {
+                    Text("Calling +91 98765 43210...", fontSize = 16.sp, color = GreenOn)
+                    Spacer(Modifier.height(16.dp))
+                    Text("Pretend to speak on the phone to leave unsafe situations.", fontSize = 13.sp, color = TxtSub, textAlign = TextAlign.Center)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(if (inCall) "End Call" else "Cancel", color = Primary)
+            }
+        }
+    )
 }
